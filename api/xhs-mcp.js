@@ -2360,10 +2360,11 @@ async function handleDiagnostics(url, env, request) {
 // ── Netlify Function 入口 ───────────────────────────────────────────────────
 
 export default async function handler(request, context) {
+  try { 
     const env = (typeof process !== "undefined" && process.env) ? process.env : {};
     const protocol = request.headers.get('x-forwarded-proto') || 'http';
-const host = request.headers.get('host') || 'localhost';
-const url = new URL(request.url, `${protocol}://${host}`);
+    const host = request.headers.get('host') || 'localhost';
+    const url = new URL(request.url, `${protocol}://${host}`);
 
     if (request.method === "OPTIONS") {
         return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -2540,4 +2541,15 @@ const url = new URL(request.url, `${protocol}://${host}`);
     } catch (err) {
         return rpcError(body && body.id, -32603, err instanceof Error ? err.message : String(err));
     }
+}catch (globalError) { // <--- 添加这一行
+        // 如果任何地方崩溃了，都会到这里，并且返回 JSON，而不是 500 网页
+        return new Response(JSON.stringify({ 
+            ok: false, 
+            error: "全局捕获异常: " + globalError.message,
+            stack: globalError.stack ? globalError.stack.slice(0, 500) : ""
+        }), {
+            status: 500,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+        });
+    } // <--- 添加这一行
 }
