@@ -2384,21 +2384,30 @@ export default async function handler(request, context) {
                 let noteId = linkMatch[1] || "";
                 let xsecToken = "";
 
-                // 如果是短链，发起重定向请求抓取实际 noteId
+                                // 如果是短链，发起重定向请求抓取实际 noteId（加超时控制）
                 if (!noteId) {
-                    const resp = await fetch(targetUrl, {
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
-                        },
-                        redirect: 'follow'
-                    });
-                    const finalUrl = resp.url || "";
-                    const idMatch = finalUrl.match(/xiaohongshu\.com\/(?:explore|discovery\/item)\/([a-zA-Z0-9]+)/);
-                    if (idMatch) noteId = idMatch[1];
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 8000); // 最多等8秒
                     try {
-                        const u = new URL(finalUrl);
-                        xsecToken = u.searchParams.get("xsec_token") || "";
-                    } catch(e) {}
+                        const resp = await fetch(targetUrl, {
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+                            },
+                            redirect: 'follow',
+                            signal: controller.signal
+                        });
+                        clearTimeout(timeoutId);
+                        const finalUrl = resp.url || "";
+                        const idMatch = finalUrl.match(/xiaohongshu\.com\/(?:explore|discovery\/item)\/([a-zA-Z0-9]+)/);
+                        if (idMatch) noteId = idMatch[1];
+                        try {
+                            const u = new URL(finalUrl);
+                            xsecToken = u.searchParams.get("xsec_token") || "";
+                        } catch(e) {}
+                    } catch (fetchErr) {
+                        clearTimeout(timeoutId);
+                        return json({ ok: false, error: `短链重定向失败（可能超时）: ${fetchErr.message}` }, 400);
+                    }
                 }
 
                 if (!noteId) return json({ ok: false, error: "无法解析短链重定向" }, 400);
