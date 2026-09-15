@@ -2373,6 +2373,64 @@ export default async function handler(request, context) {
         if (url.searchParams.get("check")) {
             return await handleDiagnostics(url, env, request);
         }
+        // ── 新增：解析小红书口令短链 (xhslink.cn / xhslink.com) ──
+        if (url.searchParams.get("resolve_share")) {
+            const rawText = url.searchParams.get("resolve_share");
+            try {
+                const linkMatch = rawText.match(/https?:\/\/(?:www\.)?(?:xiaohongshu\.com\/(?:explore|discovery\/item)\/([a-zA-Z0-9]+)|xhslink\.(?:cn|com)\/[a-zA-Z0-9_/]+)/i);
+                if (!linkMatch) return json({ ok: false, error: "未找到小红书链接" }, 400);
+
+                let targetUrl = linkMatch[0];
+                let noteId = linkMatch[1] || "";
+                let xsecToken = "";
+
+                // 如果是短链，发起重定向请求抓取实际 noteId
+                if (!noteId) {
+                    const resp = await fetch(targetUrl, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+                        },
+                        redirect: 'follow'
+                    });
+                    const finalUrl = resp.url || "";
+                    const idMatch = finalUrl.match(/xiaohongshu\.com\/(?:explore|discovery\/item)\/([a-zA-Z0-9]+)/);
+                    if (idMatch) noteId = idMatch[1];
+                    try {
+                        const u = new URL(finalUrl);
+                        xsecToken = u.searchParams.get("xsec_token") || "";
+                    } catch(e) {}
+                }
+
+                if (!noteId) return json({ ok: false, error: "无法解析短链重定向" }, 400);
+
+                // 调取详情获取卡片元数据
+                const res = await callCore("get-feed-detail", {
+                    feed_id: noteId,
+                    xsec_token: xsecToken
+                }, env);
+
+                const note = (res && res.data && res.data.note) || {};
+                const user = note.user || {};
+                const interact = note.interact_info || {};
+                const firstImg = (note.image_list && note.image_list[0]) || {};
+                const cover = firstImg.url_default || firstImg.url_pre || firstImg.url || (firstImg.info_list && firstImg.info_list[0] && firstImg.info_list[0].url) || "";
+
+                return json({
+                    ok: true,
+                    noteId,
+                    note: {
+                        title: note.title || note.display_title || "小红书笔记",
+                        author: user.nickname || user.nick_name || "小红书用户",
+                        likedCount: interact.liked_count ?? interact.likedCount ?? 0,
+                        commentCount: interact.comment_count ?? interact.commentCount ?? 0,
+                        collectedCount: interact.collected_count ?? interact.collectedCount ?? 0,
+                        coverUrl: cover ? cover.replace(/^http:\/\//, 'https://') : ""
+                    }
+                });
+            } catch (e) {
+                return json({ ok: false, error: e.message }, 500);
+            }
+        }
 // ── 获取卡片真实元数据（标题、作者、数据、封面） ──
         if (url.searchParams.get("card_note_id")) {
             const noteId = url.searchParams.get("card_note_id");
