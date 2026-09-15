@@ -2373,7 +2373,60 @@ export default async function handler(request, context) {
         if (url.searchParams.get("check")) {
             return await handleDiagnostics(url, env, request);
         }
-        return json({
+// ── 获取卡片真实元数据（标题、作者、数据、封面） ──
+        if (url.searchParams.get("card_note_id")) {
+            const noteId = url.searchParams.get("card_note_id");
+            try {
+                const res = await callCore("get-feed-detail", {
+                    feed_id: noteId,
+                    xsec_token: url.searchParams.get("token") || ""
+                }, env);
+
+                const note = (res && res.data && res.data.note) || {};
+                const user = note.user || {};
+                const interact = note.interact_info || {};
+                const firstImg = (note.image_list && note.image_list[0]) || {};
+                const cover = firstImg.url_default || firstImg.url_pre || firstImg.url || (firstImg.info_list && firstImg.info_list[0] && firstImg.info_list[0].url) || "";
+
+                return json({
+                    ok: true,
+                    note: {
+                        title: note.title || note.display_title || "小红书笔记",
+                        author: user.nickname || user.nick_name || "小红书用户",
+                        likedCount: interact.liked_count ?? interact.likedCount ?? 0,
+                        commentCount: interact.comment_count ?? interact.commentCount ?? 0,
+                        collectedCount: interact.collected_count ?? interact.collectedCount ?? 0,
+                        imageCount: Array.isArray(note.image_list) ? note.image_list.length : 1,
+                        type: note.type || "normal",
+                        coverUrl: cover ? cover.replace(/^http:\/\//, 'https://') : ""
+                    }
+                });
+            } catch (e) {
+                return json({ ok: false, error: e.message }, 500);
+            }
+        }
+
+        // ── 真实封面防盗链代理（解决小红书图片403裂开） ──
+        if (url.searchParams.get("img")) {
+            try {
+                const imgUrl = url.searchParams.get("img");
+                const imgResp = await fetch(imgUrl, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+                        'Referer': 'https://www.xiaohongshu.com/'
+                    }
+                });
+                return new Response(imgResp.body, {
+                    headers: {
+                        'Content-Type': imgResp.headers.get('content-type') || 'image/jpeg',
+                        'Cache-Control': 'public, max-age=86400',
+                        ...CORS_HEADERS
+                    }
+                });
+            } catch (e) {
+                return new Response(null, { status: 404, headers: CORS_HEADERS });
+            }
+        }        return json({
             status: "ok",
             server: SERVER_INFO,
             tools: TOOLS.length,
