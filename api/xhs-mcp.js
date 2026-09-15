@@ -2361,7 +2361,9 @@ async function handleDiagnostics(url, env, request) {
 
 export default async function handler(request, context) {
     const env = (typeof process !== "undefined" && process.env) ? process.env : {};
-    const url = new URL(request.url);
+    const protocol = request.headers.get('x-forwarded-proto') || 'http';
+const host = request.headers.get('host') || 'localhost';
+const url = new URL(request.url, `${protocol}://${host}`);
 
     if (request.method === "OPTIONS") {
         return new Response(null, { status: 204, headers: CORS_HEADERS });
