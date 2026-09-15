@@ -2359,8 +2359,9 @@ async function handleDiagnostics(url, env, request) {
 
 // ── Netlify Function 入口 ───────────────────────────────────────────────────
 
+// 请将这段完整代码复制到你的 Vercel 项目中的 xhs-mcp.mjs
 export default async function handler(request, context) {
-  try { 
+  try { // <--- try 必须在这里
     const env = (typeof process !== "undefined" && process.env) ? process.env : {};
     const protocol = request.headers.get('x-forwarded-proto') || 'http';
     const host = request.headers.get('host') || 'localhost';
@@ -2370,13 +2371,11 @@ export default async function handler(request, context) {
         return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    // 探活：浏览器直接打开这个地址能看到的页面，用来确认部署成功。
-    // 加 ?check=1 就是完整体检：cookie 是死是活、缺哪个字段、小红书原话。
     if (request.method === "GET") {
         if (url.searchParams.get("check")) {
             return await handleDiagnostics(url, env, request);
         }
-        // ── 新增：解析小红书口令短链 (xhslink.cn / xhslink.com) ──
+        
         if (url.searchParams.get("resolve_share")) {
             const rawText = url.searchParams.get("resolve_share");
             try {
@@ -2387,15 +2386,12 @@ export default async function handler(request, context) {
                 let noteId = linkMatch[1] || "";
                 let xsecToken = "";
 
-                                // 如果是短链，发起重定向请求抓取实际 noteId（加超时控制）
                 if (!noteId) {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 8000); // 最多等8秒
+                    const timeoutId = setTimeout(() => controller.abort(), 3000); // 缩短到3秒，防转圈
                     try {
                         const resp = await fetch(targetUrl, {
-                            headers: {
-                                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
-                            },
+                            headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' },
                             redirect: 'follow',
                             signal: controller.signal
                         });
@@ -2409,18 +2405,13 @@ export default async function handler(request, context) {
                         } catch(e) {}
                     } catch (fetchErr) {
                         clearTimeout(timeoutId);
-                        return json({ ok: false, error: `短链重定向失败（可能超时）: ${fetchErr.message}` }, 400);
+                        return json({ ok: false, error: "Vercel 服务器无法访问国内小红书短链（被墙或超时）" }, 400);
                     }
                 }
 
                 if (!noteId) return json({ ok: false, error: "无法解析短链重定向" }, 400);
 
-                // 调取详情获取卡片元数据
-                const res = await callCore("get-feed-detail", {
-                    feed_id: noteId,
-                    xsec_token: xsecToken
-                }, env);
-
+                const res = await callCore("get-feed-detail", { feed_id: noteId, xsec_token: xsecToken }, env);
                 const note = (res && res.data && res.data.note) || {};
                 const user = note.user || {};
                 const interact = note.interact_info || {};
@@ -2443,21 +2434,17 @@ export default async function handler(request, context) {
                 return json({ ok: false, error: e.message }, 500);
             }
         }
-// ── 获取卡片真实元数据（标题、作者、数据、封面） ──
+        
         if (url.searchParams.get("card_note_id")) {
+            // ... 这里保留你原来的 card_note_id 逻辑 ...
             const noteId = url.searchParams.get("card_note_id");
             try {
-                const res = await callCore("get-feed-detail", {
-                    feed_id: noteId,
-                    xsec_token: url.searchParams.get("token") || ""
-                }, env);
-
+                const res = await callCore("get-feed-detail", { feed_id: noteId, xsec_token: url.searchParams.get("token") || "" }, env);
                 const note = (res && res.data && res.data.note) || {};
                 const user = note.user || {};
                 const interact = note.interact_info || {};
                 const firstImg = (note.image_list && note.image_list[0]) || {};
                 const cover = firstImg.url_default || firstImg.url_pre || firstImg.url || (firstImg.info_list && firstImg.info_list[0] && firstImg.info_list[0].url) || "";
-
                 return json({
                     ok: true,
                     note: {
@@ -2476,56 +2463,33 @@ export default async function handler(request, context) {
             }
         }
 
-        // ── 真实封面防盗链代理（解决小红书图片403裂开） ──
         if (url.searchParams.get("img")) {
+            // ... 这里保留你原来的 img 代理逻辑 ...
             try {
                 const imgUrl = url.searchParams.get("img");
-                const imgResp = await fetch(imgUrl, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-                        'Referer': 'https://www.xiaohongshu.com/'
-                    }
-                });
-                return new Response(imgResp.body, {
-                    headers: {
-                        'Content-Type': imgResp.headers.get('content-type') || 'image/jpeg',
-                        'Cache-Control': 'public, max-age=86400',
-                        ...CORS_HEADERS
-                    }
-                });
+                const imgResp = await fetch(imgUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', 'Referer': 'https://www.xiaohongshu.com/' } });
+                return new Response(imgResp.body, { headers: { 'Content-Type': imgResp.headers.get('content-type') || 'image/jpeg', 'Cache-Control': 'public, max-age=86400', ...CORS_HEADERS } });
             } catch (e) {
                 return new Response(null, { status: 404, headers: CORS_HEADERS });
             }
-        }        return json({
-            status: "ok",
-            server: SERVER_INFO,
-            tools: TOOLS.length,
-            tool_names: TOOLS.map(t => t.name),
-            cookie_configured: !!(env && env.XHS_COOKIE),
-            auth_required: !!(env && env.MCP_KEY),
-            mcp_endpoint: url.origin + url.pathname,
-            diagnostics: url.origin + url.pathname + "?check=1",
+        }
+        
+        return json({
+            status: "ok", server: SERVER_INFO, tools: TOOLS.length, tool_names: TOOLS.map(t => t.name),
+            cookie_configured: !!(env && env.XHS_COOKIE), auth_required: !!(env && env.MCP_KEY),
+            mcp_endpoint: url.origin + url.pathname, diagnostics: url.origin + url.pathname + "?check=1",
             hint: "把这个地址填进 ai-virtual-phone 的设置 -> 工具(MCP) -> 服务器 URL",
         });
     }
 
-    if (request.method !== "POST") {
-        return json({ error: "只接受 POST（MCP 协议）。GET 可以用来探活。" }, 405);
-    }
-
+    if (request.method !== "POST") return json({ error: "只接受 POST（MCP 协议）。GET 可以用来探活。" }, 405);
     if (env && env.MCP_KEY) {
         const auth = request.headers.get("Authorization") || "";
-        if (auth !== `Bearer ${env.MCP_KEY}`) {
-            return json({ error: "Unauthorized" }, 401, { "WWW-Authenticate": 'Bearer realm="xhs-mcp"' });
-        }
+        if (auth !== `Bearer ${env.MCP_KEY}`) return json({ error: "Unauthorized" }, 401, { "WWW-Authenticate": 'Bearer realm="xhs-mcp"' });
     }
 
     let body;
-    try {
-        body = await request.json();
-    } catch {
-        return rpcError(undefined, -32700, "Parse error");
-    }
+    try { body = await request.json(); } catch { return rpcError(undefined, -32700, "Parse error"); }
 
     try {
         if (Array.isArray(body)) {
@@ -2541,15 +2505,14 @@ export default async function handler(request, context) {
     } catch (err) {
         return rpcError(body && body.id, -32603, err instanceof Error ? err.message : String(err));
     }
-}catch (globalError) { // <--- 添加这一行
-        // 如果任何地方崩溃了，都会到这里，并且返回 JSON，而不是 500 网页
-        return new Response(JSON.stringify({ 
-            ok: false, 
-            error: "全局捕获异常: " + globalError.message,
-            stack: globalError.stack ? globalError.stack.slice(0, 500) : ""
-        }), {
-            status: 500,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-        });
-    } // <--- 添加这一行
+  } catch (globalError) { // <--- 整个函数最外层、最后的 catch
+      return new Response(JSON.stringify({ 
+          ok: false, 
+          error: "全局捕获异常: " + globalError.message,
+          stack: globalError.stack ? globalError.stack.slice(0, 500) : ""
+      }), {
+          status: 500,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+      });
+  }
 }
