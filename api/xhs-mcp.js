@@ -1,4 +1,4 @@
-export const config = { runtime: 'edge' };
+
 
 /**
  * xhs-mcp.mjs —— 小红书 MCP 服务器（Netlify Function · 单文件版）
