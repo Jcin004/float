@@ -1,7 +1,7 @@
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
-import handler from '../../../api/xhs-mcp.mjs';
+import handler from './xhs-mcp.mjs';
 
 export async function GET(request: Request) {
   return handler(request, {});
