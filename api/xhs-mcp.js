@@ -2441,9 +2441,19 @@ export default async function handler(request, context) {
                 } catch(e) {}
 
                 // 短链 302 重定向解析出真正 noteId 与 token
+                
+                        const resp = await fetch(targetUrl, {
+                            headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' },
+                            redirect: 'follow',
+                            signal: controller.signal
+                        });
+                        clearTimeout(timeoutId);
+                        const finalUrl = resp.url || "";
+                                        // 短链 302 重定向解析出真正 noteId 与 token
                 if (!noteId) {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 4000);
+                    // 给足 8 秒，让 Vercel 节点尽力去解析
+                    const timeoutId = setTimeout(() => controller.abort(), 8000); 
                     try {
                         const resp = await fetch(targetUrl, {
                             headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' },
@@ -2460,6 +2470,9 @@ export default async function handler(request, context) {
                         } catch(e) {}
                     } catch (fetchErr) {
                         clearTimeout(timeoutId);
+                        // 🚨 把之前漏掉的 return 加回来！
+                        // 如果是网络被阻断，立刻告诉前端，而不是让它往下走报“无法解析ID”
+                        return json({ ok: false, error: "Vercel 节点访问短链超时，请改用长链接（长链接可完美兜底）" }, 400);
                     }
                 }
 
