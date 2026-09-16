@@ -1363,20 +1363,34 @@ const XHSLite = (() => {
     const ck = parseCookies(cookieStr);
     const st = SORT_MAP[sort] || 'general';
     
+    // 提取原始词与拆分出的首个核心主词
     const cleanKeyword = String(keyword || '').trim().replace(/\s+/g, ' ');
-    const payload = {
-      keyword: cleanKeyword,
-      page,
-      page_size: 20,
-      search_id: genSearchId(),
-      sort: st,
-      note_type: 0,
-      ext_flags: [],
-      image_formats: IMG_FORMATS
+    const primaryKeyword = cleanKeyword.split(' ')[0] || cleanKeyword;
+
+    const doSearch = async (kw) => {
+      const payload = {
+        keyword: kw,
+        page,
+        page_size: 20,
+        search_id: genSearchId(),
+        sort: st,
+        note_type: 0,
+        ext_flags: [],
+        image_formats: IMG_FORMATS
+      };
+      // 必须开启 useXrap: true 绕过 406 风控
+      return await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck, {}, true);
     };
 
-    let r = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck);
+    // 1. 先用全词搜
+    let r = await doSearch(cleanKeyword);
     let items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
+
+    // 2. 如果带空格且搜空了，自动降级用第 1 个核心主词（例如只要 "回避型"）重试
+    if (items.length === 0 && primaryKeyword !== cleanKeyword) {
+      r = await doSearch(primaryKeyword);
+      items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
+    }
 
     return { feeds: items.map(normItem), success: items.length > 0, msg: r?.msg };
   }
