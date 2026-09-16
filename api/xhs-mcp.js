@@ -1367,7 +1367,7 @@ const XHSLite = (() => {
     const cleanKeyword = String(keyword || '').trim().replace(/\s+/g, ' ');
     const primaryKeyword = cleanKeyword.split(' ')[0] || cleanKeyword;
 
-    const doSearch = async (kw) => {
+        const doSearch = async (kw) => {
       const payload = {
         keyword: kw,
         page,
@@ -1378,10 +1378,18 @@ const XHSLite = (() => {
         ext_flags: [],
         image_formats: IMG_FORMATS
       };
+      
+      // ================= 新增调试日志 =================
+      console.log(`[XHS_SEARCH_DEBUG] 正在搜索关键词: "${kw}"`);
+      
       // 必须开启 useXrap: true 绕过 406 风控
-      return await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck, {}, true);
+      const res = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck, {}, true);
+      
+      console.log(`[XHS_SEARCH_RAW] 小红书接口原始返回:`, JSON.stringify(res));
+      // ===============================================
+      
+      return res; // 返回给下游逻辑
     };
-
     // 1. 先用全词搜
     let r = await doSearch(cleanKeyword);
     let items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
