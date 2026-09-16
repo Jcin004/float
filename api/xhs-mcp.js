@@ -1358,7 +1358,7 @@ const XHSLite = (() => {
     while (n > 0n) { s = B36[Number(n % 36n)] + s; n /= 36n; }
     return s;
   }
-  async function search(cookieStr, keyword, { page = 1, sort = 'general' } = {}, platform = 'xhs') {
+  async function search(cookieStr, keyword, { page = 1, sort = 'general' } = {}, platform = 'rednote') {
     const { apiBase } = platformConfig(platform);
     const ck = parseCookies(cookieStr);
     const st = SORT_MAP[sort] || 'general';
@@ -1383,7 +1383,7 @@ const XHSLite = (() => {
       console.log(`[XHS_SEARCH_DEBUG] 正在搜索关键词: "${kw}"`);
       
       // 必须开启 useXrap: true 绕过 406 风控
-      const res = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck, {}, true);
+      const res = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck, {}, false);
       
       console.log(`[XHS_SEARCH_RAW] 小红书接口原始返回:`, JSON.stringify(res));
       // ===============================================
@@ -2167,7 +2167,7 @@ async function callCore(command, body, env) {
     const cookie = resolveCookie(env);
     const result = await XHSLite.handle(command, body || {}, cookie, env || {}, {
         rnoteApiKey: (env && env.RNOTE_API_KEY) || "",
-        platform: "auto",
+        platform: "rednote",
     });
     if (result === null) throw new Error(`内核不认识这个命令：${command}`);
     return result;
