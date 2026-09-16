@@ -2503,8 +2503,12 @@ export default async function handler(request, context) {
         globalThis.__XHS_NOTE_CACHE__ = globalThis.__XHS_NOTE_CACHE__ || new Map();
 
         if (url.searchParams.get("resolve_share")) {
-            const rawText = url.searchParams.get("resolve_share");
+            // 1. 先做解码与去除首尾空格（解决 %20 导致正则失效）
+            const rawParam = url.searchParams.get("resolve_share") || "";
+            const rawText = decodeURIComponent(rawParam).trim();
+
             try {
+                // 宽容匹配小红书长短链（兼容 /o/ /a/ 等短链子路径）
                 const linkMatch = rawText.match(/https?:\/\/(?:www\.)?(?:xiaohongshu\.com\/(?:explore|discovery\/item)\/([a-zA-Z0-9]+)|xhslink\.(?:cn|com)\/[a-zA-Z0-9_/?&=]+)/i);
                 if (!linkMatch) return json({ ok: false, error: "未找到小红书链接" }, 400);
 
@@ -2520,19 +2524,27 @@ export default async function handler(request, context) {
                 // 短链 302 重定向解析出真正 noteId 与 token
                 if (!noteId) {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 4000);
+                    const timeoutId = setTimeout(() => controller.abort(), 6000);
                     try {
                         const resp = await fetch(targetUrl, {
-                            headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' },
+                            headers: { 
+                                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' 
+                            },
                             redirect: 'follow',
                             signal: controller.signal
                         });
                         clearTimeout(timeoutId);
                         const finalUrl = resp.url || "";
-                        const idMatch = finalUrl.match(/xiaohongshu\.com\/(?:explore|discovery\/item)\/([a-zA-Z0-9]+)/);
-                        if (idMatch) noteId = idMatch[1];
+                        
+                        // 强化提取：只要跳出的落地页里包含 24 位 16 进制 ID 就认定为笔记 ID
+                        const idMatch = finalUrl.match(/(?:explore|discovery\/item|item)\/([0-9a-f]{24})/i) 
+                                     || finalUrl.match(/note_id=([0-9a-f]{24})/i)
+                                     || finalUrl.match(/([0-9a-f]{24})/i);
+                        if (idMatch) noteId = idMatch[1] || idMatch[0];
+
                         try {
                             const u = new URL(finalUrl);
+                            // 关键：提取重定向随附下发的高权限 xsec_token！
                             xsecToken = u.searchParams.get("xsec_token") || xsecToken;
                         } catch(e) {}
                     } catch (fetchErr) {
@@ -2542,14 +2554,14 @@ export default async function handler(request, context) {
 
                 if (!noteId) return json({ ok: false, error: "无法解析小红书笔记ID" }, 400);
 
-                // 1. 优先检查搜索缓存池（AI原生搜索过的直接命中）
-                const cachedNote = globalThis.__XHS_NOTE_CACHE__.get(noteId);
+                // 2. 优先检查搜索缓存池
+                const cachedNote = globalThis.__XHS_NOTE_CACHE__?.get(noteId);
 
-                // 2. 正常请求详情
+                // 3. 带上真实的 xsecToken 调 get-feed-detail（有了从重定向拿到的 Token 就绝不会被拒了！）
                 let res = await callCore("get-feed-detail", { feed_id: noteId, xsec_token: xsecToken }, env);
                 let note = (res && res.data && res.data.note) || {};
 
-                // 3. 缺 token 导致没标题时，直接使用缓存兜底
+                // 4. 详情没拿到且命中了内存缓存时才兜底
                 if (!note.title && !note.desc && cachedNote) {
                     return json({
                         ok: true,
@@ -2558,27 +2570,7 @@ export default async function handler(request, context) {
                     });
                 }
 
-                // 4. 仍为空则按 ID 自动逆向搜索补齐
-                if (!note.title && !note.desc) {
-                    const sRes = await callCore("search", { keyword: noteId, page: 1 }, env);
-                    const hit = sRes?.feeds?.[0];
-                    if (hit) {
-                        const hitCover = hit.cover?.url_default || hit.cover?.url || "";
-                        return json({
-                            ok: true,
-                            noteId,
-                            note: {
-                                title: hit.title || hit.display_title || "小红书笔记",
-                                author: hit.author || hit.nickname || "小红书用户",
-                                likedCount: hit.liked_count || 0,
-                                commentCount: 0,
-                                collectedCount: 0,
-                                coverUrl: hitCover ? hitCover.replace(/^http:\/\//, 'https://') : ""
-                            }
-                        });
-                    }
-                }
-
+                // 5. 组装并返回真实数据
                 const user = note.user || {};
                 const interact = note.interact_info || {};
                 const firstImg = (note.image_list && note.image_list[0]) || {};
@@ -2588,38 +2580,11 @@ export default async function handler(request, context) {
                     ok: true,
                     noteId,
                     note: {
-                        title: note.title || note.display_title || "小红书笔记",
+                        title: note.title || note.desc?.slice(0, 30) || "小红书笔记",
                         author: user.nickname || user.nick_name || "小红书用户",
                         likedCount: interact.liked_count ?? interact.likedCount ?? 0,
                         commentCount: interact.comment_count ?? interact.commentCount ?? 0,
                         collectedCount: interact.collected_count ?? interact.collectedCount ?? 0,
-                        coverUrl: cover ? cover.replace(/^http:\/\//, 'https://') : ""
-                    }
-                });
-            } catch (e) {
-                return json({ ok: false, error: e.message }, 500);
-            }
-        }
-        
-        if (url.searchParams.get("card_note_id")) {
-            const noteId = url.searchParams.get("card_note_id");
-            try {
-                const res = await callCore("get-feed-detail", { feed_id: noteId, xsec_token: url.searchParams.get("token") || "" }, env);
-                const note = (res && res.data && res.data.note) || {};
-                const user = note.user || {};
-                const interact = note.interact_info || {};
-                const firstImg = (note.image_list && note.image_list[0]) || {};
-                const cover = firstImg.url_default || firstImg.url_pre || firstImg.url || (firstImg.info_list && firstImg.info_list[0] && firstImg.info_list[0].url) || "";
-                return json({
-                    ok: true,
-                    note: {
-                        title: note.title || note.display_title || "小红书笔记",
-                        author: user.nickname || user.nick_name || "小红书用户",
-                        likedCount: interact.liked_count ?? interact.likedCount ?? 0,
-                        commentCount: interact.comment_count ?? interact.commentCount ?? 0,
-                        collectedCount: interact.collected_count ?? interact.collectedCount ?? 0,
-                        imageCount: Array.isArray(note.image_list) ? note.image_list.length : 1,
-                        type: note.type || "normal",
                         coverUrl: cover ? cover.replace(/^http:\/\//, 'https://') : ""
                     }
                 });
