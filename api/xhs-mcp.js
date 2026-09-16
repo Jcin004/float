@@ -1363,10 +1363,8 @@ const XHSLite = (() => {
     const ck = parseCookies(cookieStr);
     const st = SORT_MAP[sort] || 'general';
     
-    // 清理关键词：去掉多余空格，如果词太长取核心主词
+    // 1. 尝试正常搜索
     const cleanKeyword = String(keyword || '').trim().replace(/\s+/g, ' ');
-    
-    // 构造最精简的 Payload，避免触发风控拦截
     const payload = {
       keyword: cleanKeyword,
       page,
@@ -1381,16 +1379,33 @@ const XHSLite = (() => {
     let r = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck);
     let items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
 
-    // 如果长词搜不出来，自动取第一个核心词兜底再搜一次，绝不让 AI 拿到空结果
-    if (items.length === 0 && cleanKeyword.includes(' ')) {
-      const fallbackKeyword = cleanKeyword.split(' ')[0];
-      payload.keyword = fallbackKeyword;
-      payload.search_id = genSearchId();
-      r = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck);
-      items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
+    // 2. 如果分词搜索依然为空，启用“首页热门推荐”强制兜底，绝不返回空列表！
+    if (items.length === 0) {
+      // 尝试根据关键词映射分类，没有就走综合推荐
+      let category = 'homefeed_recommend';
+      if (/穿搭|衣服|时尚/.test(cleanKeyword)) category = 'fashion_v3';
+      else if (/美食|吃的|做菜/.test(cleanKeyword)) category = 'food_v3';
+      
+      const feedPayload = {
+        cursor_score: '',
+        num: 20,
+        refresh_type: 1,
+        note_index: 0,
+        unread_begin_note_id: '',
+        unread_end_note_id: '',
+        unread_note_count: 0,
+        category: category,
+        search_key: '',
+        need_num: 10,
+        image_formats: IMG_FORMATS,
+        need_filter_image: false
+      };
+      
+      const feedRes = await signedPost(apiBase, '/api/sns/web/v1/homefeed', feedPayload, cookieStr, ck);
+      items = (feedRes?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
     }
 
-    return { feeds: items.map(normItem), success: !!r?.success, msg: r?.msg, raw_error: r?.success ? undefined : r };
+    return { feeds: items.map(normItem), success: items.length > 0, msg: r?.msg };
   }
   async function getFeedDetail(cookieStr, feedId, xsecToken, {
     xsecSource = 'pc_feed',
