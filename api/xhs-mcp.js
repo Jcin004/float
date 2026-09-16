@@ -1971,7 +1971,16 @@ function renderNote(note, index) {
     const author = note.author || note.nickname || (note.user && (note.user.nickname || note.user.name)) || "";
     const likes = note.liked_count || (note.interact_info && note.interact_info.liked_count) || "0";
     const token = note.xsec_token || note.xsecToken || "";
+    
+    // ================= 新增：拼接完整的小红书链接 =================
+    let url = "";
+    if (id) {
+        url = `https://www.xiaohongshu.com/explore/${id}${token ? `?xsec_token=${token}&xsec_source=pc_search` : ''}`;
+    }
+    // ==============================================================
+
     let line = `${index}. [${id}] ${title} | 作者:${author} | 赞:${likes}`;
+    if (url) line += `\n   链接: ${url}`; // 强制输出链接，方便插件抓取
     if (token) line += `\n   xsec_token: ${token}`;
     return line;
 }
@@ -2026,6 +2035,9 @@ function renderDetail(payload) {
     out.push(`笔记 [${id}] ${title}`);
     out.push(`作者: ${user.nickname || user.nick_name || "(未知)"}${user.user_id ? ` (${user.user_id})` : ""}`);
     out.push(`赞: ${interact.liked_count || interact.likedCount || "0"} | 藏: ${interact.collected_count || "0"} | 评: ${interact.comment_count || "0"} | 图: ${images} 张`);
+    const token = note.xsec_token || "";
+    const noteUrl = `https://www.xiaohongshu.com/explore/${id}${token ? `?xsec_token=${token}&xsec_source=pc_feed` : ''}`;
+    out.push(`链接: ${noteUrl}`);
     out.push("");
     out.push("正文：");
     out.push(body || "(无正文)");
