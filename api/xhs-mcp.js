@@ -1343,14 +1343,12 @@ const XHSLite = (() => {
     const login = await checkLogin(cookieStr, 'auto');
     return { platform: login.platform || '', login };
   }
-  // 找到 listFeeds 函数，修改 signedPost 的最后一个参数为 true：
   async function listFeeds(cookieStr, { category = 'homefeed_recommend', cursorScore = '', noteIndex = 0, refreshType = 1 } = {}, platform = 'xhs') {
     const { apiBase } = platformConfig(platform);
     const ck = parseCookies(cookieStr);
     const payload = { cursor_score: cursorScore, num: 20, refresh_type: refreshType, note_index: noteIndex, unread_begin_note_id: '', unread_end_note_id: '', unread_note_count: 0, category, search_key: '', need_num: 10, image_formats: IMG_FORMATS, need_filter_image: false };
-  // 将原先的 signedPost 最后一个参数加上 true（启用 xrap 签名）
-   const r = await signedPost(apiBase, '/api/sns/web/v1/homefeed', payload, cookieStr, ck, {}, true);
-   return { feeds: (r?.data?.items || []).map(normItem), cursor_score: r?.data?.cursor_score, success: !!r?.success, msg: r?.msg, raw_error: r?.success ? undefined : r };
+    const r = await signedPost(apiBase, '/api/sns/web/v1/homefeed', payload, cookieStr, ck);
+    return { feeds: (r?.data?.items || []).map(normItem), cursor_score: r?.data?.cursor_score, success: !!r?.success, msg: r?.msg, raw_error: r?.success ? undefined : r };
   }
   const SORT_MAP = { general: 'general', time: 'time_descending', hot: 'popularity_descending', comment: 'comment_descending', collect: 'collect_descending' };
   function genSearchId() {
@@ -2441,19 +2439,9 @@ export default async function handler(request, context) {
                 } catch(e) {}
 
                 // 短链 302 重定向解析出真正 noteId 与 token
-                
-                        const resp = await fetch(targetUrl, {
-                            headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' },
-                            redirect: 'follow',
-                            signal: controller.signal
-                        });
-                        clearTimeout(timeoutId);
-                        const finalUrl = resp.url || "";
-                                        // 短链 302 重定向解析出真正 noteId 与 token
                 if (!noteId) {
                     const controller = new AbortController();
-                    // 给足 8 秒，让 Vercel 节点尽力去解析
-                    const timeoutId = setTimeout(() => controller.abort(), 8000); 
+                    const timeoutId = setTimeout(() => controller.abort(), 4000);
                     try {
                         const resp = await fetch(targetUrl, {
                             headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' },
@@ -2470,9 +2458,6 @@ export default async function handler(request, context) {
                         } catch(e) {}
                     } catch (fetchErr) {
                         clearTimeout(timeoutId);
-                        // 🚨 把之前漏掉的 return 加回来！
-                        // 如果是网络被阻断，立刻告诉前端，而不是让它往下走报“无法解析ID”
-                        return json({ ok: false, error: "Vercel 节点访问短链超时，请改用长链接（长链接可完美兜底）" }, 400);
                     }
                 }
 
