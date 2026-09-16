@@ -1370,12 +1370,14 @@ const XHSLite = (() => {
     // 小红书笔记 ID 特征：24 位的 16 进制字符串（如 6a2281500000000035030f84）
     // ================= 拦截并纠偏误把 note_id 当关键词搜索 =================
     // 小红书笔记 ID 特征：24 位的 16 进制字符串
+    // ================= 拦截并纠偏误把 note_id 当关键词搜索 =================
+    // 小红书笔记 ID 特征：24 位的 16 进制字符串
     if (/^[0-9a-f]{24}$/i.test(cleanKeyword)) {
       console.log(`[XHS_SEARCH_SHIELD] 检测到关键词为笔记 ID: "${cleanKeyword}"`);
       
       // 1. 优先从全局缓存提取之前搜索留存的元数据
       const cached = globalThis.__XHS_NOTE_CACHE__?.get(cleanKeyword);
-      if (cached) {
+      if (cached && cached.title && !cached.title.includes("精选笔记")) {
         console.log(`[XHS_SEARCH_SHIELD] 命中内存笔记缓存: "${cached.title}"`);
         return {
           feeds: [normItem({
@@ -1383,7 +1385,7 @@ const XHSLite = (() => {
             note_card: {
               title: cached.title,
               desc: cached.title,
-              user: { nickname: cached.author },
+              user: { nickname: cached.author || "小红书用户" },
               interact_info: { liked_count: cached.likedCount || 0 },
               cover: { url_default: cached.coverUrl || '' }
             }
@@ -1393,40 +1395,33 @@ const XHSLite = (() => {
         };
       }
 
-      // 2. 缓存若冷启动丢失，尝试直接读取详情
-      const detailRes = await getFeedDetail(cookieStr, cleanKeyword, '', { platform });
-      const n = detailRes?.data?.note;
-      if (n && (n.title || n.desc)) {
-        return {
-          feeds: [normItem({
-            id: cleanKeyword,
-            note_card: {
-              title: n.title,
-              desc: n.desc,
-              user: n.user,
-              interact_info: n.interact_info,
-              cover: { url_default: n.image_list?.[0]?.url_default || '' }
-            }
-          })],
-          success: true,
-          msg: "成功（ID定向详情解析）"
-        };
-      }
+      // 2. 缓存若冷启动丢失，尝试直接读取详情（必须拿到真实标题才算数）
+      try {
+        const detailRes = await getFeedDetail(cookieStr, cleanKeyword, '', { platform });
+        const n = detailRes?.data?.note;
+        if (n && (n.title || n.desc)) {
+          return {
+            feeds: [normItem({
+              id: cleanKeyword,
+              note_card: {
+                title: n.title || n.desc,
+                desc: n.desc,
+                user: n.user,
+                interact_info: n.interact_info,
+                cover: { url_default: n.image_list?.[0]?.url_default || '' }
+              }
+            })],
+            success: true,
+            msg: "成功（ID定向详情解析）"
+          };
+        }
+      } catch (_) {}
 
-      // 3. 兜底回传有效结构，避免返回空导致前端卡死
+      // 3. 查不到真数据就如实返回空，绝不返回虚假的“小红书精选笔记”
       return { 
-        feeds: [normItem({
-          id: cleanKeyword,
-          note_card: {
-            title: "小红书精选笔记",
-            desc: "点击进入小红书查看详情",
-            user: { nickname: "小红书" },
-            interact_info: { liked_count: 0 },
-            cover: { url_default: "" }
-          }
-        })], 
-        success: true, 
-        msg: "成功（兜底放行）" 
+        feeds: [], 
+        success: false, 
+        msg: "未命中历史缓存且小红书接口未返回详情" 
       };
     }
     // =====================================================================
