@@ -1376,7 +1376,7 @@ const XHSLite = (() => {
       image_formats: IMG_FORMATS
     };
 
-    let r = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck);
+    let r = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck, {}, true);
     let items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
 
     // 2. 如果分词搜索依然为空，启用“首页热门推荐”强制兜底，绝不返回空列表！
