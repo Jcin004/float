@@ -1366,7 +1366,32 @@ const XHSLite = (() => {
     // 提取原始词与拆分出的首个核心主词
     const cleanKeyword = String(keyword || '').trim().replace(/\s+/g, ' ');
     const primaryKeyword = cleanKeyword.split(' ')[0] || cleanKeyword;
-
+    // ================= 拦截并纠偏误把 note_id 当关键词搜索 =================
+    // 小红书笔记 ID 特征：24 位的 16 进制字符串（如 6a2281500000000035030f84）
+    if (/^[0-9a-f]{24}$/i.test(cleanKeyword)) {
+      console.log(`[XHS_SEARCH_SHIELD] 检测到关键词为笔记 ID: "${cleanKeyword}"，自动转为直接获取该笔记详情！`);
+      // 直接通过 ID 获取该单篇笔记真实数据，并包装成搜索列表返回给模型
+      const detailRes = await getFeedDetail(cookieStr, cleanKeyword, '', { platform });
+      const n = detailRes?.data?.note;
+      if (n && (n.title || n.desc)) {
+        return {
+          feeds: [normItem({
+            id: cleanKeyword,
+            note_card: {
+              title: n.title,
+              desc: n.desc,
+              user: n.user,
+              interact_info: n.interact_info,
+              cover: { url_default: n.image_list?.[0]?.url_default || '' }
+            }
+          })],
+          success: true,
+          msg: "成功（ID自动定向解析）"
+        };
+      }
+      return { feeds: [], success: false, msg: "传入的笔记ID无效或已失效" };
+    }
+    // =====================================================================
         const doSearch = async (kw) => {
       const payload = {
         keyword: kw,
