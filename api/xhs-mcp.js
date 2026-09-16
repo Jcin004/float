@@ -1381,18 +1381,7 @@ const XHSLite = (() => {
     return { feeds: items.map(normItem), success: items.length > 0, msg: r?.msg };
   }
 
-    // 1. 先用原词搜
-    let r = await doSearch(cleanKeyword);
-    let items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
-
-    // 2. 如果包含多个词且搜空了，自动降级用第 1 个核心主词重试
-    if (items.length === 0 && primaryKeyword !== cleanKeyword) {
-      r = await doSearch(primaryKeyword);
-      items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
-    }
-
-    return { feeds: items.map(normItem), success: items.length > 0, msg: r?.msg };
-  }
+  
   async function getFeedDetail(cookieStr, feedId, xsecToken, {
     xsecSource = 'pc_feed',
     loadComments = true,
