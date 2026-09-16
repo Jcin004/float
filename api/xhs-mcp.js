@@ -2167,7 +2167,7 @@ async function callCore(command, body, env) {
     const cookie = resolveCookie(env);
     const result = await XHSLite.handle(command, body || {}, cookie, env || {}, {
         rnoteApiKey: (env && env.RNOTE_API_KEY) || "",
-        platform: "rednote",
+        platform: "auto",
     });
     if (result === null) throw new Error(`内核不认识这个命令：${command}`);
     return result;
