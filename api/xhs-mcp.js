@@ -1343,12 +1343,14 @@ const XHSLite = (() => {
     const login = await checkLogin(cookieStr, 'auto');
     return { platform: login.platform || '', login };
   }
+  // 找到 listFeeds 函数，修改 signedPost 的最后一个参数为 true：
   async function listFeeds(cookieStr, { category = 'homefeed_recommend', cursorScore = '', noteIndex = 0, refreshType = 1 } = {}, platform = 'xhs') {
     const { apiBase } = platformConfig(platform);
     const ck = parseCookies(cookieStr);
     const payload = { cursor_score: cursorScore, num: 20, refresh_type: refreshType, note_index: noteIndex, unread_begin_note_id: '', unread_end_note_id: '', unread_note_count: 0, category, search_key: '', need_num: 10, image_formats: IMG_FORMATS, need_filter_image: false };
-    const r = await signedPost(apiBase, '/api/sns/web/v1/homefeed', payload, cookieStr, ck);
-    return { feeds: (r?.data?.items || []).map(normItem), cursor_score: r?.data?.cursor_score, success: !!r?.success, msg: r?.msg, raw_error: r?.success ? undefined : r };
+  // 将原先的 signedPost 最后一个参数加上 true（启用 xrap 签名）
+   const r = await signedPost(apiBase, '/api/sns/web/v1/homefeed', payload, cookieStr, ck, {}, true);
+   return { feeds: (r?.data?.items || []).map(normItem), cursor_score: r?.data?.cursor_score, success: !!r?.success, msg: r?.msg, raw_error: r?.success ? undefined : r };
   }
   const SORT_MAP = { general: 'general', time: 'time_descending', hot: 'popularity_descending', comment: 'comment_descending', collect: 'collect_descending' };
   function genSearchId() {
@@ -1363,50 +1365,39 @@ const XHSLite = (() => {
     const ck = parseCookies(cookieStr);
     const st = SORT_MAP[sort] || 'general';
     
-    // 1. 尝试正常搜索
+    // 提取原始词与拆分出的首个核心主词
     const cleanKeyword = String(keyword || '').trim().replace(/\s+/g, ' ');
-    const payload = {
-      keyword: cleanKeyword,
-      page,
-      page_size: 20,
-      search_id: genSearchId(),
-      sort: st,
-      note_type: 0,
-      ext_flags: [],
-      image_formats: IMG_FORMATS
+    const primaryKeyword = cleanKeyword.split(' ')[0] || cleanKeyword;
+
+    const doSearch = async (kw) => {
+      const payload = {
+        keyword: kw,
+        page,
+        page_size: 20,
+        search_id: genSearchId(),
+        sort: st,
+        note_type: 0,
+        ext_flags: [],
+        image_formats: IMG_FORMATS
+      };
+      // 必须开启 useXrap: true 绕过 406 风控
+      return await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck, {}, true);
     };
 
-    let r = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck);
+    // 1. 先用全词搜
+    let r = await doSearch(cleanKeyword);
     let items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
 
-    // 2. 如果分词搜索依然为空，启用“首页热门推荐”强制兜底，绝不返回空列表！
-    if (items.length === 0) {
-      // 尝试根据关键词映射分类，没有就走综合推荐
-      let category = 'homefeed_recommend';
-      if (/穿搭|衣服|时尚/.test(cleanKeyword)) category = 'fashion_v3';
-      else if (/美食|吃的|做菜/.test(cleanKeyword)) category = 'food_v3';
-      
-      const feedPayload = {
-        cursor_score: '',
-        num: 20,
-        refresh_type: 1,
-        note_index: 0,
-        unread_begin_note_id: '',
-        unread_end_note_id: '',
-        unread_note_count: 0,
-        category: category,
-        search_key: '',
-        need_num: 10,
-        image_formats: IMG_FORMATS,
-        need_filter_image: false
-      };
-      
-      const feedRes = await signedPost(apiBase, '/api/sns/web/v1/homefeed', feedPayload, cookieStr, ck);
-      items = (feedRes?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
+    // 2. 如果带空格且搜空了，自动降级用第 1 个核心主词（例如只要 "回避型"）重试
+    if (items.length === 0 && primaryKeyword !== cleanKeyword) {
+      r = await doSearch(primaryKeyword);
+      items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
     }
 
     return { feeds: items.map(normItem), success: items.length > 0, msg: r?.msg };
   }
+
+  
   async function getFeedDetail(cookieStr, feedId, xsecToken, {
     xsecSource = 'pc_feed',
     loadComments = true,
