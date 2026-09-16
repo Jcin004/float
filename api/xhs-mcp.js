@@ -1363,7 +1363,6 @@ const XHSLite = (() => {
     const ck = parseCookies(cookieStr);
     const st = SORT_MAP[sort] || 'general';
     
-    // 1. 尝试正常搜索
     const cleanKeyword = String(keyword || '').trim().replace(/\s+/g, ' ');
     const payload = {
       keyword: cleanKeyword,
@@ -1376,33 +1375,20 @@ const XHSLite = (() => {
       image_formats: IMG_FORMATS
     };
 
-    let r = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck, {}, true);
+    let r = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck);
     let items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
 
-    // 2. 如果分词搜索依然为空，启用“首页热门推荐”强制兜底，绝不返回空列表！
-    if (items.length === 0) {
-      // 尝试根据关键词映射分类，没有就走综合推荐
-      let category = 'homefeed_recommend';
-      if (/穿搭|衣服|时尚/.test(cleanKeyword)) category = 'fashion_v3';
-      else if (/美食|吃的|做菜/.test(cleanKeyword)) category = 'food_v3';
-      
-      const feedPayload = {
-        cursor_score: '',
-        num: 20,
-        refresh_type: 1,
-        note_index: 0,
-        unread_begin_note_id: '',
-        unread_end_note_id: '',
-        unread_note_count: 0,
-        category: category,
-        search_key: '',
-        need_num: 10,
-        image_formats: IMG_FORMATS,
-        need_filter_image: false
-      };
-      
-      const feedRes = await signedPost(apiBase, '/api/sns/web/v1/homefeed', feedPayload, cookieStr, ck);
-      items = (feedRes?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
+    return { feeds: items.map(normItem), success: items.length > 0, msg: r?.msg };
+  }
+
+    // 1. 先用原词搜
+    let r = await doSearch(cleanKeyword);
+    let items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
+
+    // 2. 如果包含多个词且搜空了，自动降级用第 1 个核心主词重试
+    if (items.length === 0 && primaryKeyword !== cleanKeyword) {
+      r = await doSearch(primaryKeyword);
+      items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
     }
 
     return { feeds: items.map(normItem), success: items.length > 0, msg: r?.msg };
